@@ -2,6 +2,7 @@
 $host_master = "";
 $user_master = "";
 $pwd_master = "";
+$db_master = "";
 $conn_master = mysql_connect("$host_master","$user_master","$pwd_master");
 mysql_select_db("$db_master", $conn_master);
 
