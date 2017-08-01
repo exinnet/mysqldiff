@@ -1,91 +1,149 @@
 <?php
-$host_master = "";
-$user_master = "";
-$pwd_master = "";
-$db_master = "";
-$conn_master = mysql_connect("$host_master","$user_master","$pwd_master");
-mysql_select_db("$db_master", $conn_master);
 
+class MysqlDiff
+{
+    public $conn = [];
+    
+    public $error_add_tables = [];
+    public $success_add_tables = [];
+    public $create_table_sqls = [];
+    public $error_repair_tables = [];
+    public $success_repair_tables = [];
+    public $repair_fields = [];
 
-$host_slave = "";
-$user_slave = "";
-$pwd_slave = "";
-$db_slave = "";
-$conn_slave = mysql_connect("$host_slave","$user_slave","$pwd_slave");
-mysql_select_db("$db_slave", $conn_slave);
-
-
-$res_master = mysql_query("show tables", $conn_master);
-$tables_master = array();
-while ($row = mysql_fetch_array($res_master, MYSQL_ASSOC)) {
-    $tables_master[$row["Tables_in_products_center_v1"]] = 1;
-}
- 
-$res_slave = mysql_query("show tables", $conn_slave);
-$tables_slave = array();
-while ($row = mysql_fetch_array($res_slave, MYSQL_ASSOC)) {
-    $tables_slave[$row["Tables_in_products_center_v1"]] = 1;
-}
-
-$error_add_tables = array();
-$error_repair_tables = array();
-foreach ($tables_master as $k => $v) {
-    if (!isset($tables_slave[$k])) {
-        add_table($k);
-    } else {
-        repair_table($k);
-    }
-}
-
-function add_table($table) {
-    global $conn_master, $conn_slave, $error_add_tables;
-    $res = mysql_query("show create table $table", $conn_master);
-    $row = mysql_fetch_array($res, MYSQL_ASSOC);
-    $res = mysql_query($row["Create Table"], $conn_slave);
-    if ($res) {
-        echo "add table [$table][success]\n";
-    } else {
-        echo "add table [$table][fail]";
-        $error_add_tables[$table] = "fail to add table";
-    }
-}
-
-function repair_table($table) {
-    global $conn_master, $conn_slave, $error_repair_tables;
-    $res_slave = mysql_query("select COLUMN_NAME from information_schema.COLUMNS where table_name = '$table'", $conn_slave);
-    $column_slave = array();
-    while($row = mysql_fetch_array($res_slave, MYSQL_ASSOC))
+    public function __construct(array $conf)
     {
-        $column_slave[$row["COLUMN_NAME"]] = 1;
+        $dbms = 'mysql';
+
+        $master = $conf['master'];
+        $slave = $conf['slave'];
+
+        $dsn = sprintf("mysql:host=%s;dbname=%s", $master['host'], $master['db']);
+        $dbh_conn_master = new PDO($dsn, $master['user'], $master['pwd']);
+
+        $dsn = sprintf("mysql:host=%s;dbname=%s", $slave['host'], $slave['db']);
+        $dbh_conn_slave = new PDO($dsn, $slave['user'], $slave['pwd']);
+
+        $this->conn['master'] = $dbh_conn_master;
+        $this->conn['slave'] = $dbh_conn_slave;
     }
-    $res_master = mysql_query("select COLUMN_NAME from information_schema.COLUMNS where table_name = '$table'", $conn_master);
-    while($row = mysql_fetch_array($res_master, MYSQL_ASSOC))
+
+    public function listTables()
     {
-        $column = $row["COLUMN_NAME"];
-        $res = true;
-        if (!isset($column_slave[$column])) {
-            $repair_sql = get_repair_sql($table, $column);
-            $res = mysql_query($repair_sql, $conn_slave);
+        $sql = 'SHOW TABLES;';
+        $query_master = $this->conn['master']->query($sql);
+        $query_slave = $this->conn['slave']->query($sql);
+        $query_master = $query_master->fetchAll(PDO::FETCH_COLUMN);
+        $query_slave = $query_slave->fetchAll(PDO::FETCH_COLUMN);
+        return [$query_master, $query_slave];
+    }
+
+    public function getCreateTableSql($table)
+    {
+        $sql = 'SHOW CREATE TABLE ' . $table . ';';
+        $query = $this->conn['master']->query($sql);
+        $row = $query->fetch(PDO::FETCH_ASSOC);
+        $this->create_table_sqls[$table] = $row['Create Table'];
+        return $this->create_table_sqls[$table];
+    }
+
+    public function addTables($table)
+    {
+        $_sql = $this->getCreateTableSql($table);
+        $ret = $this->conn['slave']->exec($_sql);
+        if ($ret !== 0) {
+            $this->error_add_tables[] = $table;
         }
-        if ($res == false) {
-            $error_repair_tables[$table][] = $column;
-            echo "table $table add column [$column] [fail]\n";
-        } else {
-            echo "table $table add column [$column] [success]\n";
+        $this->success_add_tables[] = $table;
+    }
+
+    public function repairTable($table)
+    {
+        $this->getCreateTableSql($table);
+
+        $_sql = 'DESC ' . $table;
+
+        $stmt = $this->conn['master']->prepare($_sql);  
+        $stmt->execute();
+        $master_table_fields = $stmt->fetchAll();
+        $master_table_fields = array_column($master_table_fields, 'Field');
+
+        $stmt = $this->conn['slave']->prepare($_sql);  
+        $stmt->execute();  
+        $slave_table_fields = $stmt->fetchAll();
+        $slave_table_fields = array_column($slave_table_fields, 'Field');
+
+        foreach ($master_table_fields as $field) {
+            if (!in_array($field, $slave_table_fields)) {
+                $_str = $this->create_table_sqls[$table];
+                $pattern = sprintf('/`%s`.*?,(?=\s)/s', $field);
+                preg_match($pattern, $_str, $matchs);
+
+                $tmp = $matchs[0];
+                $offset = strlen($tmp) - 1;
+                $tmp[$offset] = ";";
+                $repair_sql = sprintf('ALTER TABLE %s ADD %s', $table, $tmp);
+
+                $ret = $this->conn['slave']->exec($repair_sql);
+                if ($ret !== 0) {
+                    $this->error_repair_tables[] = $table;
+                }
+                $this->success_repair_tables[] = $table;
+            }
         }
     }
+
+    public function run()
+    {
+        list($master_tables, $slave_tables) = $this->listTables();
+
+        foreach ($master_tables as $table) {
+            if (!in_array($table, $slave_tables)) {
+                $this->addTables($table);
+            }
+            else
+            {
+                $this->repairTable($table);
+            }
+        }
+    }
+
+    public function getAddTables()
+    {
+        return [array_unique($this->success_add_tables), array_unique($this->error_add_tables)];
+    }
+
+    public function getRepairTables()
+    {
+        return [array_unique($this->success_repair_tables), array_unique($this->error_repair_tables)];
+    }
+
 }
 
-function get_repair_sql($table, $column) {
-    global $conn_master;
-    $res = mysql_query("show create table $table", $conn_master);
-    $row = mysql_fetch_array($res, MYSQL_ASSOC);
-    $pattern = "/`$column`(.*?),\n/s";
-    preg_match($pattern, $row["Create Table"], $matchs);
-    $tmp = trim($matchs[0]);
-    $offset = strlen($tmp) - 1;
-    $tmp[$offset] = ";";
-    $sql = "alter table $table add ".$tmp;
-    return $sql;
-}
-?>
+$conf = [
+    'master' => [
+        'host' => '127.0.0.1',
+        'user' => 'root',
+        'pwd' => 'root',
+        'db' => 'test',
+    ],
+    'slave' => [
+        'host' => '127.0.0.1',
+        'user' => 'root',
+        'pwd' => 'root',
+        'db' => 'test2',
+    ],
+];
+
+
+$md = new MysqlDiff($conf);
+$md->run();
+
+list($success_add_tables, $error_add_tables) = $md->getAddTables();
+list($success_repair_tables, $error_repair_tables) = $md->getRepairTables();
+
+echo sprintf("Success add tables:\t%s\n", implode(',', $success_add_tables));
+echo sprintf("Error add tables:\t%s\n", implode(',', $error_add_tables));
+
+echo sprintf("Success repair tables:\t%s\n", implode(',', $success_repair_tables));
+echo sprintf("Error repair tables:\t%s\n", implode(',', $error_repair_tables));
