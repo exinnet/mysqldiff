@@ -76,12 +76,10 @@ class MysqlDiff
         foreach ($master_table_fields as $field) {
             if (!in_array($field, $slave_table_fields)) {
                 $_str = $this->create_table_sqls[$table];
-                $pattern = sprintf('/`%s`.*?,(?=\s)/s', $field);
+                $pattern = sprintf('/`%s`.*?(?=,\s|\s\))/s', $field);
                 preg_match($pattern, $_str, $matchs);
 
-                $tmp = $matchs[0];
-                $offset = strlen($tmp) - 1;
-                $tmp[$offset] = ";";
+                $tmp = $matchs[0] . ';';
                 $repair_sql = sprintf('ALTER TABLE %s ADD %s', $table, $tmp);
 
                 $ret = $this->conn['slave']->exec($repair_sql);
