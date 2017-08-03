@@ -118,21 +118,7 @@ class MysqlDiff
 
 }
 
-$conf = [
-    'master' => [
-        'host' => '127.0.0.1',
-        'user' => 'root',
-        'pwd' => 'root',
-        'db' => 'test',
-    ],
-    'slave' => [
-        'host' => '127.0.0.1',
-        'user' => 'root',
-        'pwd' => 'root',
-        'db' => 'test2',
-    ],
-];
-
+$conf = json_decode(file_get_contents(dirname(__FILE__) . '/config.json'), true);
 
 $md = new MysqlDiff($conf);
 $md->run();
