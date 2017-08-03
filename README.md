@@ -14,7 +14,7 @@ Installation
 ```
 git clone https://github.com/exinnet/mysqldiff.git
 cd mysqldiff
-vi config.json # config mysql connection info
+vi config.php # config mysql connection info
 ```
 
 Usage
@@ -29,23 +29,23 @@ Custom
 you would like to adjust some params to make it suited for your server.
 
 * Config mysql connection
-    ```json
-    vi config.json
+    ```php
+    vi config.php
 
-	{
-	    "master": {
-	        "host": "127.0.0.1",
-	        "user": "root",
-	        "pwd": "root",
-	        "db": "test"
-	    },
-	    "slave": {
-	        "host": "127.0.0.1",
-	        "user": "root",
-	        "pwd": "root",
-	        "db": "test2"
-	    }
-	}
+	return [
+		"master" => [
+			"host" => "127.0.0.1",
+			"user" => "root",
+			"pwd" => "root",
+			"db" => "test",
+		],
+		"slave" => [
+			"host" => "127.0.0.1",
+			"user" => "root",
+			"pwd" => "root",
+			"db" => "test2",
+		],
+	];
     ```
 
 Contributors

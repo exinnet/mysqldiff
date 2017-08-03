@@ -118,7 +118,7 @@ class MysqlDiff
 
 }
 
-$conf = json_decode(file_get_contents(dirname(__FILE__) . '/config.json'), true);
+$conf = require dirname(__FILE__) . '/config.php';
 
 $md = new MysqlDiff($conf);
 $md->run();
