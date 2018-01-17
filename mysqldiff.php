@@ -40,7 +40,7 @@ class MysqlDiff
 
     public function getCreateTableSql($table)
     {
-        $sql = 'SHOW CREATE TABLE ' . $table . ';';
+        $sql = 'SHOW CREATE TABLE `' . $table . '`;';
         $query = $this->conn['master']->query($sql);
         $row = $query->fetch(PDO::FETCH_ASSOC);
         $this->create_table_sqls[$table] = $row['Create Table'];
@@ -80,7 +80,7 @@ class MysqlDiff
                 preg_match($pattern, $_str, $matchs);
 
                 $tmp = $matchs[0] . ';';
-                $repair_sql = sprintf('ALTER TABLE %s ADD %s', $table, $tmp);
+                $repair_sql = sprintf('ALTER TABLE `%s` ADD %s', $table, $tmp);
 
                 $ret = $this->conn['slave']->exec($repair_sql);
                 if ($ret !== 0) {
@@ -88,6 +88,25 @@ class MysqlDiff
                 }
                 $this->success_repair_tables[] = $table;
             }
+        }
+    
+        $_sql = "SHOW CREATE TABLE `$table`";
+        $stmt = $this->conn["slave"]->query($_sql);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $slave_create_sqls = $row["Create Table"];
+        $pattern = "/(UNIQUE|PRIMARY|) KEY(.*?)\)/m";
+        preg_match_all($pattern, $this->create_table_sqls[$table], $match_master);
+        preg_match_all($pattern, $slave_create_sqls, $match_slave);
+        $exist_key_slave = array_flip($match_slave[0]);
+        foreach ($match_master[0] as $item) {
+            if (!isset($exist_key_slave[$item])) {
+                $repair_sql = sprintf("ALTER TABLE `%s` ADD %s", $table, $item);
+                $ret = $this->conn['slave']->exec($repair_sql);
+                if ($ret !== 0) {
+                    $this->error_repair_tables[] = $table;
+                }
+                $this->success_repair_tables[] = $table; 
+            } 
         }
     }
 
