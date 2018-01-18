@@ -18,10 +18,10 @@ class MysqlDiff
         $master = $conf['master'];
         $slave = $conf['slave'];
 
-        $dsn = sprintf("mysql:host=%s;dbname=%s", $master['host'], $master['db']);
+        $dsn = sprintf("mysql:host=%s;port=%s;dbname=%s", $master['host'], $master["port"], $master['db']);
         $dbh_conn_master = new PDO($dsn, $master['user'], $master['pwd']);
 
-        $dsn = sprintf("mysql:host=%s;dbname=%s", $slave['host'], $slave['db']);
+        $dsn = sprintf("mysql:host=%s;port=%s;dbname=%s", $slave['host'], $slave["port"], $slave['db']);
         $dbh_conn_slave = new PDO($dsn, $slave['user'], $slave['pwd']);
 
         $this->conn['master'] = $dbh_conn_master;
